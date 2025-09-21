@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Website RAG Chatbot (Gemini)</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 24px; }
+      .row { display: flex; gap: 8px; margin-bottom: 12px; }
+      input, button, textarea { font-size: 16px; padding: 8px; }
+      input[type="text"] { flex: 1; }
+      #log { white-space: pre-wrap; background: #f6f8fa; padding: 12px; border-radius: 8px; max-height: 240px; overflow: auto; }
+      #messages { border: 1px solid #ddd; border-radius: 8px; padding: 12px; min-height: 240px; }
+      .msg { margin: 8px 0; }
+      .user { color: #222; }
+      .bot { color: #0b5; }
+      .ctx { color: #666; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>Website RAG Chatbot (Gemini)</h1>
+
+    <div class="row">
+      <input id="siteUrl" type="text" placeholder="https://example.com" />
+      <button id="ingestBtn">Ingest</button>
+    </div>
+
+    <div id="log"></div>
+
+    <h3>Chat</h3>
+    <div id="messages"></div>
+    <div class="row">
+      <input id="question" type="text" placeholder="Ask a question about the site" />
+      <button id="askBtn">Ask</button>
+    </div>
+
+    <script>
+      const log = (m) => {
+        const el = document.getElementById('log');
+        el.textContent = (el.textContent + (el.textContent? '\n' : '') + m).slice(-4000);
+      };
+
+      document.getElementById('ingestBtn').onclick = async () => {
+        const url = document.getElementById('siteUrl').value.trim();
+        if (!url) { alert('Enter a site URL'); return; }
+        log('Ingesting…');
+        try {
+          const res = await fetch('/ingest', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, max_pages: 20 }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const data = await res.json();
+          log(`Done. Indexed ${data.pages_indexed} pages (site_id: ${data.site_id}).`);
+        } catch (e) {
+          log('Error: ' + e);
+        }
+      };
+
+      function addMsg(role, text) {
+        const wrap = document.getElementById('messages');
+        const div = document.createElement('div');
+        div.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+        div.textContent = (role === 'user' ? 'You: ' : 'Bot: ') + text;
+        wrap.appendChild(div);
+        wrap.scrollTop = wrap.scrollHeight;
+      }
+
+      function addCtx(ctx) {
+        const wrap = document.getElementById('messages');
+        const div = document.createElement('div');
+        div.className = 'msg ctx';
+        const urls = [...new Set(ctx.map(c => c.url))];
+        div.textContent = 'Context URLs: ' + urls.join(', ');
+        wrap.appendChild(div);
+      }
+
+      document.getElementById('askBtn').onclick = async () => {
+        const site_url = document.getElementById('siteUrl').value.trim();
+        const question = document.getElementById('question').value.trim();
+        if (!site_url || !question) { alert('Enter site URL and a question'); return; }
+        addMsg('user', question);
+        try {
+          const res = await fetch('/chat', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ site_url, question, top_k: 5 }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const data = await res.json();
+          addMsg('bot', data.answer);
+          if (data.context && data.context.length) addCtx(data.context);
+        } catch (e) {
+          addMsg('bot', 'Error: ' + e);
+        }
+      };
+    </script>
+  </body>
+</html>
